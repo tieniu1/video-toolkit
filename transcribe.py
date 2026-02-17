@@ -2,6 +2,7 @@ import sys
 import os
 import time
 import subprocess
+import argparse
 
 # 下载模型时注释掉下1行代码
 os.environ["HF_HUB_OFFLINE"] = "1"
@@ -12,12 +13,30 @@ from opencc import OpenCC
 
 cc = OpenCC("t2s")
 
-if len(sys.argv) < 2:
-    print("用法: python transcribe.py <视频或音频文件> [输出srt路径]")
-    sys.exit(1)
+DEFAULT_MODEL = os.environ.get("WHISPER_MODEL", "mlx-community/whisper-large-v3-turbo-4bit")
 
-input_file = sys.argv[1]
-output_file = sys.argv[2] if len(sys.argv) >= 3 else input_file.rsplit(".", 1)[0] + ".srt"
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="识别视频/音频并导出 SRT + ASS 字幕（普通话加速配置）"
+    )
+    parser.add_argument("input_file", help="输入视频或音频文件")
+    parser.add_argument(
+        "output_file",
+        nargs="?",
+        help="输出 srt 路径（可选，默认与输入同名）",
+    )
+    parser.add_argument(
+        "--model",
+        default=DEFAULT_MODEL,
+        help=f"mlx-whisper 模型（默认: {DEFAULT_MODEL}）",
+    )
+    return parser.parse_args()
+
+
+args = parse_args()
+input_file = args.input_file
+output_file = args.output_file if args.output_file else input_file.rsplit(".", 1)[0] + ".srt"
 
 duration = ""
 try:
@@ -37,8 +56,9 @@ t0 = time.time()
 result = mlx_whisper.transcribe(
     input_file,
     language="zh",
-    # path_or_hf_repo="mlx-community/whisper-small-mlx",
-    path_or_hf_repo="mlx-community/whisper-large-v3-turbo-4bit",
+    path_or_hf_repo=args.model,
+    temperature=0.0,
+    condition_on_previous_text=False,
 )
 elapsed = time.time() - t0
 print(f"识别完成，耗时 {elapsed:.1f}s，已生成字幕")

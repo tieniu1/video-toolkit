@@ -30,7 +30,7 @@
 ### 3.1 系统级依赖
 
 - `bash`（脚本执行）
-- `ffmpeg`（转码、合成、烧录字幕）
+- `ffmpeg`（转码、合成、烧录字幕，支持 `h264_videotoolbox` 硬编可提速）
 - `ffprobe`（获取时长等媒体信息）
 
 ### 3.2 Python 依赖（用于 `transcribe.py`）
@@ -46,7 +46,7 @@
 
 说明：
 
-- `mlx-whisper` 用于中文语音识别（当前脚本使用 `mlx-community/whisper-large-v3-turbo-4bit`）
+- `mlx-whisper` 用于中文语音识别（默认模型 `mlx-community/whisper-large-v3-turbo-4bit`，可通过环境变量切换）
 - `opencc` 用于繁体转简体（`t2s`）
 - 脚本默认设置 `HF_HUB_OFFLINE=1`，离线模式下需要本地已有模型
 
@@ -76,6 +76,12 @@ video/
 - `./process.sh --all`: 扫描 `input/` 批量处理，跳过已完成视频
 - `./process.sh --export`: 仅导出最终视频（要求已有字幕）
 
+导出加速默认行为：
+
+- 先抽取首帧封面，再用 `-loop 1` 生成静态视频（避免对整段原视频做滤镜）
+- `VIDEO_ENCODER=auto` 时自动优先 `h264_videotoolbox`（Apple 硬件编码），无则回退 `libx264`
+- 默认 `OUTPUT_FPS=2`（静态封面场景更快）
+
 处理结果：
 
 - `output/<原文件名>_final.mp4`
@@ -93,8 +99,10 @@ video/
 关键点：
 
 - 语言固定 `language="zh"`
+- 解码使用加速参数：`temperature=0.0`、`condition_on_previous_text=False`
 - 字幕文本经过 `OpenCC("t2s")` 转简体
 - `ASS` 分辨率按竖屏样式设置 (`PlayResX=576`, `PlayResY=1280`)
+- 可用 `--model` 或环境变量 `WHISPER_MODEL` 切换模型
 
 ### 5.3 `trim_videos.sh`
 
@@ -132,6 +140,12 @@ pip show mlx-whisper opencc-python-reimplemented
 
 # 3) 执行主流程
 ./process.sh --all
+
+# 4) 切换识别模型（示例）
+WHISPER_MODEL=mlx-community/whisper-small-mlx ./process.sh --all
+
+# 5) 指定导出参数（示例）
+VIDEO_ENCODER=h264_videotoolbox OUTPUT_FPS=2 ./process.sh --export
 ```
 
 ## 8. 注意事项

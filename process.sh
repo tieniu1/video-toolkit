@@ -7,8 +7,25 @@ OUTPUT_DIR="$SCRIPT_DIR/output"
 SRT_DIR="$OUTPUT_DIR/srt"
 TRANSCRIBE_PY="$SCRIPT_DIR/transcribe.py"
 WHISPER_ENV="$HOME/mlx-whisper-env/bin/activate"
+OUTPUT_FPS="${OUTPUT_FPS:-2}"
+VIDEO_ENCODER="${VIDEO_ENCODER:-auto}"
+VIDEO_BITRATE="${VIDEO_BITRATE:-2500k}"
 
 mkdir -p "$INPUT_DIR" "$SRT_DIR"
+
+detect_video_encoder() {
+  if [ "$VIDEO_ENCODER" != "auto" ]; then
+    echo "$VIDEO_ENCODER"
+    return 0
+  fi
+  if ffmpeg -hide_banner -encoders 2>/dev/null | grep -q "h264_videotoolbox"; then
+    echo "h264_videotoolbox"
+  else
+    echo "libx264"
+  fi
+}
+
+ENCODER_SELECTED="$(detect_video_encoder)"
 
 if [ $# -lt 1 ]; then
   echo "用法:"
@@ -37,6 +54,7 @@ export_video() {
   fi
 
   echo "  合成中..."
+  echo "  编码器: $ENCODER_SELECTED, FPS: $OUTPUT_FPS"
 
   local duration_full
   duration_full=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$input_path")
@@ -53,9 +71,21 @@ export_video() {
     duration_s=0
   fi
 
-  ffmpeg -y -i "$input_path" \
-  -vf "select=eq(n\,0),setpts=PTS-STARTPTS,tpad=stop_duration=${duration_full}:stop_mode=clone,fps=5,ass=$ass" \
-  -c:v libx264 -preset ultrafast -tune stillimage -c:a copy -t "$duration_full" \
+  local cover
+  cover="$OUTPUT_DIR/.cover_${name}.jpg"
+
+  ffmpeg -y -i "$input_path" -frames:v 1 "$cover" >/dev/null 2>&1
+
+  local -a vcodec_args
+  if [ "$ENCODER_SELECTED" = "h264_videotoolbox" ]; then
+    vcodec_args=(-c:v h264_videotoolbox -b:v "$VIDEO_BITRATE" -allow_sw 1)
+  else
+    vcodec_args=(-c:v libx264 -preset ultrafast -tune stillimage -crf 23)
+  fi
+
+  ffmpeg -y -loop 1 -i "$cover" -i "$input_path" \
+  -vf "fps=${OUTPUT_FPS},ass=$ass" \
+  "${vcodec_args[@]}" -c:a copy -map 0:v:0 -map 1:a:0 -t "$duration_full" -shortest \
   -progress pipe:1 "$final" 2>/dev/null | \
   ( set +u
     while IFS='=' read -r key value; do
@@ -68,6 +98,7 @@ export_video() {
     done
   )
   printf "\r  进度: 100%%\n"
+  rm -f "$cover"
 }
 
 process_video() {
