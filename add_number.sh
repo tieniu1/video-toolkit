@@ -3,6 +3,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 OUTPUT_DIR="$SCRIPT_DIR/output"
+NUMBERED_DIR="$OUTPUT_DIR/numbered"
+mkdir -p "$NUMBERED_DIR"
 
 if [ $# -lt 2 ]; then
   echo "用法: ./add_number.sh <视频文件名> <数字>"
@@ -21,7 +23,7 @@ add_number() {
   local filename="$(basename "$input_path")"
   local name="${filename%.*}"
   local ext="${filename##*.}"
-  local numbered="${OUTPUT_DIR}/${name}_numbered.${ext}"
+  local numbered="${NUMBERED_DIR}/${name}_numbered.${ext}"
 
   if [ ! -f "$input_path" ]; then
     echo "错误: 文件不存在 $input_path"
@@ -37,7 +39,7 @@ add_number() {
 
   ffmpeg -y -i "$input_path" \
     -vf "drawtext=text='${number}':fontsize=h/12:fontcolor=white:borderw=3:bordercolor=black:x=(w-text_w)/2:y=h*2/3" \
-    -c:v libx264 -preset ultrafast -c:a copy \
+    -c:v libx264 -preset fast -crf 28 -tune stillimage -c:a copy \
     "$numbered" 2>/dev/null
 
   local end_ts
@@ -63,6 +65,18 @@ if [ "$1" = "--all" ] || [ "$1" = "-all" ]; then
     echo "output 目录下没有找到 _final.mp4 文件"
     exit 1
   fi
+  # 重命名: 去掉 _trim_final_numbered 和 _final_numbered 后缀
+  for f in "$NUMBERED_DIR"/*_numbered.mp4; do
+    [ -f "$f" ] || continue
+    local_name="$(basename "$f")"
+    new_name="${local_name/_trim_final_numbered/}"
+    new_name="${new_name/_final_numbered/}"
+    if [ "$local_name" != "$new_name" ]; then
+      mv "$f" "$NUMBERED_DIR/$new_name"
+      echo "重命名: $local_name -> $new_name"
+    fi
+  done
+
   echo "========================================="
   echo "全部完成! 共处理 ${count} 个视频 (编号 ${start_num}-$((num - 1)))"
   echo "========================================="
