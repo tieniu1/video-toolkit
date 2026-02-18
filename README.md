@@ -1,155 +1,139 @@
-# video 项目说明
+# video — 竖屏视频批处理工具链
 
-## 1. 电脑环境（当前机器）
+针对 Apple Silicon (M4) 优化的竖屏视频处理流水线：语音识别 → 字幕生成 → 字幕烧录 → 视频压缩。
 
-以下信息来自当前目录下实际命令检测结果。
-- MacBook Air （2025款、M4芯片） 16G+512G
-- 系统: macOS 15.7.3 (Build 24G419)
-- 内核/架构: Darwin 24.6.0 / arm64 (Apple Silicon)
-- Shell: `/bin/zsh`
-- Git: `2.39.5 (Apple Git-154)`
-- Node.js: `v25.6.1`
-- npm: `11.9.0`
-- pnpm: `10.17.1`
-- Python: `3.14.3`
-- pip: `26.0`
-- FFmpeg: `8.0`
-- FFprobe: `8.0`
+## 技术栈
 
-## 2. 项目用途
+| 层级 | 工具 | 用途 |
+|------|------|------|
+| 语音识别 | `mlx-whisper` (large-v3-turbo-4bit) | MLX 加速的 Whisper，Apple Silicon 原生推理 |
+| 繁简转换 | `opencc` (t2s) | Whisper 输出繁体 → 简体中文 |
+| 视频处理 | `ffmpeg` / `ffprobe` | 转码、合成、字幕烧录、压缩 |
+| 硬件加速 | VideoToolbox | `hevc_videotoolbox` / `h264_videotoolbox` 硬编码 |
+| 运行环境 | Bash + Python 3 | 脚本编排 + AI 推理 |
 
-本项目用于批量处理竖屏视频，目标是：
+## 处理流水线
 
-- 自动语音识别生成中文字幕（简体）
-- 生成 `srt` 与 `ass` 字幕
-- 将视频压缩为“静态封面 + 原音频 + 烧录字幕”的成品文件
-- 支持单文件、批量处理、仅导出、按时间段裁剪
+```
+input/*.mp4
+    │
+    ├─ [可选] trim_videos.sh ──→ 按时间段裁剪
+    │
+    ▼
+process.sh ─────────────────────────────────────────────────
+    │                                                       │
+    │ ① 提取音频 (ffmpeg)                                    │
+    │ ② 语音识别 (mlx-whisper, language=zh)                  │
+    │ ③ 繁→简 (OpenCC t2s)                                   │
+    │ ④ 生成 .srt + .ass 字幕                                │
+    │ ⑤ 抽首帧封面 → 静态视频 + 原音频 + ASS 烧录             │
+    │   编码器: h264_videotoolbox (auto) / libx264 (fallback) │
+    │   帧率: OUTPUT_FPS=2 (静态封面场景)                      │
+    │                                                        │
+    ▼                                                        │
+output/*_final.mp4 + output/srt/*.{srt,ass}                  │
+─────────────────────────────────────────────────────────────
 
-## 3. 项目依赖工具
-
-### 3.1 系统级依赖
-
-- `bash`（脚本执行）
-- `ffmpeg`（转码、合成、烧录字幕，支持 `h264_videotoolbox` 硬编可提速）
-- `ffprobe`（获取时长等媒体信息）
-
-### 3.2 Python 依赖（用于 `transcribe.py`）
-
-运行环境脚本中约定为：
-
-- 虚拟环境激活脚本: `$HOME/mlx-whisper-env/bin/activate`
-
-核心包：
-
-- `mlx-whisper==0.4.3`
-- `opencc-python-reimplemented==0.1.7`
-
-说明：
-
-- `mlx-whisper` 用于中文语音识别（默认模型 `mlx-community/whisper-large-v3-turbo-4bit`，可通过环境变量切换）
-- `opencc` 用于繁体转简体（`t2s`）
-- 脚本默认设置 `HF_HUB_OFFLINE=1`，离线模式下需要本地已有模型
-
-## 4. 目录结构
-
-```text
-video/
-├── input/              # 输入视频目录
-├── output/
-│   ├── srt/            # 识别出的字幕（.srt/.ass）
-│   └── *_final.mp4     # 最终导出视频
-├── process.sh          # 主流程脚本（识别 + 合成）
-├── transcribe.py       # 语音识别与字幕生成
-├── trim_videos.sh      # 批量按时间段裁剪
-├── 流程.md             # 流程说明文档
-├── 待处理/              # 额外素材目录（非主流程必需）
-└── 测试导出/            # 测试输出目录（非主流程必需）
+    │ [可选后处理]
+    ├─ compress.sh / compress-m4.sh ──→ HEVC 深度压缩
+    └─ add_number.sh ──→ 画面叠加序号
 ```
 
-## 5. 脚本说明
+## 目录结构
 
-### 5.1 `process.sh`
+```
+video/
+├── input/                # 源视频
+├── output/
+│   ├── srt/              # .srt / .ass 字幕
+│   ├── numbered/         # 叠加序号后的视频
+│   └── *_final.mp4       # 成品视频
+├── compress/output/      # 压缩后的视频
+├── process.sh            # 主流程：识别 + 字幕 + 合成
+├── compress.sh           # 通用压缩 (3 种模式)
+├── compress-m4.sh        # M4 专用极致压缩
+├── transcribe.py         # 语音识别引擎
+├── trim_videos.sh        # 批量裁剪
+└── add_number.sh         # 画面叠加序号
+```
 
-功能：主处理流程。
+## 脚本用法
 
-- `./process.sh <文件名>`: 处理单个视频（字幕 + 合成）
-- `./process.sh --all`: 扫描 `input/` 批量处理，跳过已完成视频
-- `./process.sh --export`: 仅导出最终视频（要求已有字幕）
-
-导出加速默认行为：
-
-- 先抽取首帧封面，再用 `-loop 1` 生成静态视频（避免对整段原视频做滤镜）
-- `VIDEO_ENCODER=auto` 时自动优先 `h264_videotoolbox`（Apple 硬件编码），无则回退 `libx264`
-- 默认 `OUTPUT_FPS=2`（静态封面场景更快）
-
-处理结果：
-
-- `output/<原文件名>_final.mp4`
-- `output/srt/<原文件名>.srt`
-- `output/srt/<原文件名>.ass`
-
-### 5.2 `transcribe.py`
-
-功能：
-
-- 调用 `mlx_whisper.transcribe()` 进行中文语音识别
-- 输出 `srt` 字幕
-- 同时输出 `ass` 字幕（带样式，可直接用于 `ffmpeg ass=`）
-
-关键点：
-
-- 语言固定 `language="zh"`
-- 解码使用加速参数：`temperature=0.0`、`condition_on_previous_text=False`
-- 字幕文本经过 `OpenCC("t2s")` 转简体
-- `ASS` 分辨率按竖屏样式设置 (`PlayResX=576`, `PlayResY=1280`)
-- 可用 `--model` 或环境变量 `WHISPER_MODEL` 切换模型
-
-### 5.3 `trim_videos.sh`
-
-功能：
-
-- 通过 `TASKS=("文件|开始|结束")` 配置批量裁剪任务
-- 输出文件名自动追加 `_trim`
-- 支持两种模式：
-  - `copy`：快，关键帧边界可能不精确
-  - `reencode`：慢，但切点更准
-
-## 6. 推荐使用流程
-
-1. 将待处理视频放入 `input/`
-2. 执行：`./process.sh --all`
-3. 到 `output/` 获取成品视频，到 `output/srt/` 获取字幕
-
-如果只想先裁剪再处理：
-
-1. 在 `trim_videos.sh` 中配置 `TASKS`
-2. 执行：`./trim_videos.sh`
-3. 再执行：`./process.sh --all`
-
-## 7. 快速检查命令
+### process.sh — 主流程
 
 ```bash
-# 1) 检查系统工具
-ffmpeg -version
-ffprobe -version
-
-# 2) 检查 Python 虚拟环境
-source "$HOME/mlx-whisper-env/bin/activate"
-python -V
-pip show mlx-whisper opencc-python-reimplemented
-
-# 3) 执行主流程
-./process.sh --all
-
-# 4) 切换识别模型（示例）
-WHISPER_MODEL=mlx-community/whisper-small-mlx ./process.sh --all
-
-# 5) 指定导出参数（示例）
-VIDEO_ENCODER=h264_videotoolbox OUTPUT_FPS=2 ./process.sh --export
+./process.sh video.mp4     # 单文件：识别 + 合成
+./process.sh --all         # 批量处理 input/ 下所有视频
+./process.sh --export      # 仅合成（需已有 .ass 字幕）
 ```
 
-## 8. 注意事项
+### compress.sh — 通用压缩
 
-- `process.sh` 使用固定虚拟环境路径：`$HOME/mlx-whisper-env/bin/activate`，若路径变化需同步修改脚本。
-- 离线模式下如未提前下载模型，识别会失败；可临时注释 `transcribe.py` 的离线环境变量后下载模型。
-- `--export` 模式依赖 `output/srt/<name>.ass` 已存在。
+```bash
+./compress.sh video.mp4    # 单文件压缩
+./compress.sh --all        # 批量压缩 input/ 下所有视频
+```
+
+编码器自动检测优先级：`hevc_videotoolbox` > `h264_videotoolbox` > `libx265` > `libx264`
+
+三种模式通过 `MODE` 切换：
+
+| 模式 | 特点 |
+|------|------|
+| `speed` | 硬编优先，最快 |
+| `balanced` | 默认，画质/体积平衡 |
+| `quality` | CPU 编码优先，最佳画质 |
+
+### compress-m4.sh — M4 专用压缩
+
+```bash
+MODE=speed ./compress-m4.sh --all   # 直播录屏激进压缩 (q=38)
+```
+
+M4 media engine 专用路径，`hevc_videotoolbox` 硬编，CPU 占用极低。默认 3 路并行。
+
+### trim_videos.sh — 裁剪
+
+在脚本内配置 `TASKS=("文件|开始时间|结束时间")`，支持 `copy`（快速）和 `reencode`（精确）两种模式。
+
+### add_number.sh — 叠加序号
+
+```bash
+./add_number.sh video.mp4 42    # 单文件叠加数字
+./add_number.sh --all 1         # 批量编号，从 1 开始
+```
+
+## 环境配置
+
+```bash
+# 系统依赖
+brew install ffmpeg
+
+# Python 虚拟环境
+python3 -m venv ~/mlx-whisper-env
+source ~/mlx-whisper-env/bin/activate
+pip install mlx-whisper==0.4.3 opencc-python-reimplemented==0.1.7
+
+# 首次下载模型（之后可离线运行）
+# 临时注释 transcribe.py 中的 HF_HUB_OFFLINE=1，运行一次即可缓存模型
+```
+
+## 环境变量
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `WHISPER_MODEL` | `mlx-community/whisper-large-v3-turbo-4bit` | 识别模型 |
+| `VIDEO_ENCODER` | `auto` | 编码器 (`auto` / `h264_videotoolbox` / `libx264`) |
+| `OUTPUT_FPS` | `2` | 导出帧率 |
+| `MODE` | `balanced` | 压缩模式 (`speed` / `balanced` / `quality`) |
+| `PARALLEL` | `3`-`4` | 批量并行数 |
+| `MAX_HEIGHT` | `960` | 压缩最大高度 |
+| `AUDIO_BITRATE` | `48k`-`80k` | 音频码率 |
+
+## 关键技术决策
+
+- **静态封面策略**：导出时抽首帧 → `-loop 1` 生成静态视频，避免对全片做滤镜，配合低帧率 (FPS=2) 大幅提速
+- **MLX 原生推理**：`mlx-whisper` 直接在 Apple Silicon Neural Engine 上运行，比 CPU Whisper 快数倍
+- **离线模式**：`HF_HUB_OFFLINE=1` 避免每次启动检查模型更新
+- **双压缩脚本**：`compress.sh` 通用兼容，`compress-m4.sh` 针对 M4 media engine 深度调参（更低码率、更激进量化）
+- **ASS 字幕**：竖屏分辨率 576×1280，直接 `ffmpeg -vf ass=` 烧录，无需额外字体配置

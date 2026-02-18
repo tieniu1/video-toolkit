@@ -1,5 +1,7 @@
 input
 output
+compress/input
+compress/output
 待处理
 .DS_Store
 
