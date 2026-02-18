@@ -3,7 +3,7 @@ set -euo pipefail
 
 # ================= 配置区域 =================
 # 并发数：M4 媒体引擎建议设为 3，过高会拥堵
-PARALLEL="${PARALLEL:-3}"
+PARALLEL="${PARALLEL:-2}"
 # 默认模式：speed (极致体积，针对直播录屏优化)
 MODE="${MODE:-speed}"
 # 最大高度：竖屏建议 1280 (即 720p)，横屏建议 720
@@ -34,38 +34,32 @@ ENCODER="${ENCODER:-$(detect_encoder)}"
 
 # 构建视频编码参数 (核心优化部分)
 build_vcodec_args() {
-  local q_value
-  
-  # M4 HEVC 专用参数策略
-  case "$MODE" in
-    speed) 
-      # 针对直播录屏的激进压缩
-      # q=38: 画面会有轻微涂抹，但文字锐化后可读，体积极小
-      q_value="38" 
-      ;;
-    balanced) 
-      # 平衡模式，画质稍好
-      q_value="45" 
-      ;;
-    quality) 
-      # 高画质模式
-      q_value="55" 
-      ;;
-    *) q_value="45" ;;
-  esac
-
   case "$ENCODER" in
     hevc_videotoolbox)
-      # -q:v 控制画质 (0-100)
-      # -g 60: 关键帧间隔设为 60 (约2.5秒)，大幅压缩静态背景
-      # -tag:v hvc1: 苹果设备兼容性标签
-      echo "-c:v hevc_videotoolbox -q:v $q_value -profile:v main -tag:v hvc1 -allow_sw 1 -g 60" 
+      # 核心逻辑解释：
+      # 1. -q:v 38: 这是一个“狠”参数。
+      #    - 对 VID：它会把码率压得很低 (约1000k)，维持 90% 的压缩率。
+      #    - 对 SVID：因为它基于质量，遇到简单的录屏画面，它会自动降到 500k，确保也能压缩。
+      # 2. -g 120: 5秒一个关键帧，专门利用“直播/口播背景不动”的特性，疯狂省空间。
+      # 3. -maxrate 2M: 还是加一个上限锁，防止个别复杂镜头体积失控。
+      echo "-c:v hevc_videotoolbox -q:v 38 -maxrate 2M -profile:v main -tag:v hvc1 -allow_sw 1 -g 120"
       ;;
     libx264)
       echo "-c:v libx264 -preset veryfast -crf 28"
       ;;
   esac
 }
+# 压缩VID开头视频可以达到90%，压缩SVID不太行。
+# build_vcodec_args() {
+#   case "$ENCODER" in
+#     hevc_videotoolbox)
+#       echo "-c:v hevc_videotoolbox -b:v 1200k -maxrate 1800k -bufsize 3600k -profile:v main -tag:v hvc1 -allow_sw 1"
+#       ;;
+#     libx264)
+#       echo "-c:v libx264 -preset veryfast -crf 28"
+#       ;;
+#   esac
+# }
 
 # 构建音频编码参数 (强制单声道)
 build_audio_args() {
@@ -96,11 +90,6 @@ build_video_filter() {
   # 2. 强制降帧到 24fps
   # 直播流往往帧率不稳定，统一到 24 既流畅又省空间
   filters+=("fps=24")
-
-  # 3. 视觉锐化 (对抗低码率模糊)
-  # 参数解释: luma_msize_x:luma_msize_y:luma_amount...
-  # 适度锐化边缘，让文字和 UI 更清晰
-  filters+=("unsharp=3:3:0.5:3:3:0.0")
 
   local joined
   joined=$(IFS=,; echo "${filters[*]}")

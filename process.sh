@@ -77,14 +77,21 @@ export_video() {
 
   local -a vcodec_args
   if [ "$ENCODER_SELECTED" = "h264_videotoolbox" ]; then
-    vcodec_args=(-c:v h264_videotoolbox -q:v 70 -allow_sw 1)
+    vcodec_args=(-c:v h264_videotoolbox -q:v 60 -allow_sw 1)
   else
     vcodec_args=(-c:v libx264 -preset fast -tune stillimage -crf 28)
   fi
 
+  local -a audio_args=(-c:a aac_at -b:a 64k -ac 1)
+  if ! ffmpeg -hide_banner -encoders 2>/dev/null | grep -q "aac_at"; then
+    audio_args=(-c:a aac -b:a 64k -ac 1)
+  fi
+
   ffmpeg -y -loop 1 -i "$cover" -i "$input_path" \
   -vf "fps=${OUTPUT_FPS},ass=$ass" \
-  "${vcodec_args[@]}" -c:a copy -map 0:v:0 -map 1:a:0 -t "$duration_full" -shortest \
+  "${vcodec_args[@]}" \
+  "${audio_args[@]}" \
+  -map 0:v:0 -map 1:a:0 -t "$duration_full" -shortest \
   -progress pipe:1 "$final" 2>/dev/null < /dev/null | \
   ( set +u
     while IFS='=' read -r key value; do

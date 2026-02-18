@@ -61,7 +61,8 @@ trim_one() {
   if [ "$FFMPEG_MODE" = "copy" ]; then
     ffmpeg -y -i "$src" -ss "$start" -to "$end" -c copy -avoid_negative_ts make_zero "$out"
   elif [ "$FFMPEG_MODE" = "reencode" ]; then
-    ffmpeg -y -i "$src" -ss "$start" -to "$end" -c:v libx264 -preset veryfast -crf 18 -c:a aac -b:a 192k "$out"
+    # ffmpeg -y -i "$src" -ss "$start" -to "$end" -c:v libx264 -preset veryfast -crf 18 -c:a aac -b:a 192k "$out"
+    ffmpeg -y -i "$src" -ss "$start" -to "$end" -c:v h264_videotoolbox -b:v 6000k -allow_sw 1 -c:a aac -b:a 192k "$out"
   else
     echo "[error] unknown FFMPEG_MODE: $FFMPEG_MODE"
     return 1
