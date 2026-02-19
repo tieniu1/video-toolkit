@@ -1,7 +1,7 @@
-input
-output
-compress/input
-compress/output
+compress-input
+compress-output
+process-input
+process-output
 待处理
 .DS_Store
 

@@ -2,8 +2,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-INPUT_DIR="$SCRIPT_DIR/input"
-OUTPUT_DIR="$SCRIPT_DIR/output"
+INPUT_DIR="$SCRIPT_DIR/process-input"
+OUTPUT_DIR="$SCRIPT_DIR/process-output"
 SRT_DIR="$OUTPUT_DIR/srt"
 TRANSCRIBE_PY="$SCRIPT_DIR/transcribe.py"
 WHISPER_ENV="$HOME/mlx-whisper-env/bin/activate"
