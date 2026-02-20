@@ -7,11 +7,11 @@ set -euo pipefail
 # - MM:SS
 # - SS
 TASKS=(
-  "SVID_20251211_213138_1.mp4|0|00:47:24"
+  "Screenrecorder-2025-05-14-20-36-05-124_m4_opt.mp4|0|02:00:00"
 )
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-INPUT_DIR="$SCRIPT_DIR/input"
+INPUT_DIR="$SCRIPT_DIR/process-input"
 
 # Output suffix for new files. Source files are never overwritten.
 OUT_SUFFIX="_trim"
@@ -41,7 +41,7 @@ trim_one() {
   local out="$INPUT_DIR/${stem}${OUT_SUFFIX}.${ext}"
 
   if [ ! -f "$src" ]; then
-    echo "[skip] missing source: $filename"
+    echo "[跳过] 文件不存在: $src"
     return 0
   fi
 

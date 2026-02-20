@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-OUTPUT_DIR="$SCRIPT_DIR/output"
+OUTPUT_DIR="$SCRIPT_DIR/process-output"
 NUMBERED_DIR="$OUTPUT_DIR/numbered"
 mkdir -p "$NUMBERED_DIR"
 
